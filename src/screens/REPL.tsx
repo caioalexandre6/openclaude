@@ -1337,34 +1337,6 @@ export function REPL({
   const inputValueRef = useRef(inputValue);
   inputValueRef.current = inputValue;
   const promptTypingSuppressionActive = isPromptTypingSuppressionActive(isPromptInputActive, inputValue);
-
-  // Defer startup checks until the user has interacted with the prompt.
-  // A pure timeout is insufficient (issue #363): if the user pauses >1.5s
-  // before typing, the timer can still fire and recommendation dialogs can
-  // steal focus. Instead, we gate on actual prompt readiness:
-  //  - First message submitted (submitCount > 0)
-  //  - Grace period elapsed + user is not actively typing
-  //  - User is typing (deferred until they stop)
-  const startupChecksStartedRef = React.useRef(false);
-  const [startupGraceElapsed, setStartupGraceElapsed] = useState(false);
-  useEffect(() => {
-    const timer = setTimeout(() => setStartupGraceElapsed(true), STARTUP_GRACE_PERIOD_MS);
-    return () => clearTimeout(timer);
-  }, []);
-  const hasHadFirstSubmission = submitCount > 0;
-  useEffect(() => {
-    if (isRemoteSession) return;
-    if (startupChecksStartedRef.current) return;
-    if (!shouldRunStartupChecks({
-      isRemoteSession,
-      hasStarted: startupChecksStartedRef.current,
-      promptTypingSuppressionActive,
-      hasHadFirstSubmission,
-      gracePeriodElapsed: startupGraceElapsed,
-    })) return;
-    startupChecksStartedRef.current = true;
-    void performStartupChecks(setAppState);
-  }, [setAppState, isRemoteSession, promptTypingSuppressionActive, hasHadFirstSubmission, startupGraceElapsed]);
   const insertTextRef = useRef<{
     insert: (text: string) => void;
     setInputWithCursor: (value: string, cursor: number) => void;
@@ -1456,6 +1428,34 @@ export function REPL({
   const activeRemote = sshRemote.isRemoteMode ? sshRemote : directConnect.isRemoteMode ? directConnect : remoteSession;
   const [pastedContents, setPastedContents] = useState<Record<number, PastedContent>>({});
   const [submitCount, setSubmitCount] = useState(0);
+
+  // Defer startup checks until the user has interacted with the prompt.
+  // A pure timeout is insufficient (issue #363): if the user pauses >1.5s
+  // before typing, the timer can still fire and recommendation dialogs can
+  // steal focus. Instead, we gate on actual prompt readiness:
+  //  - First message submitted (submitCount > 0)
+  //  - Grace period elapsed + user is not actively typing
+  //  - User is typing (deferred until they stop)
+  const startupChecksStartedRef = React.useRef(false);
+  const [startupGraceElapsed, setStartupGraceElapsed] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setStartupGraceElapsed(true), STARTUP_GRACE_PERIOD_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  const hasHadFirstSubmission = (submitCount ?? 0) > 0;
+  useEffect(() => {
+    if (isRemoteSession) return;
+    if (startupChecksStartedRef.current) return;
+    if (!shouldRunStartupChecks({
+      isRemoteSession,
+      hasStarted: startupChecksStartedRef.current,
+      promptTypingSuppressionActive,
+      hasHadFirstSubmission,
+      gracePeriodElapsed: startupGraceElapsed,
+    })) return;
+    startupChecksStartedRef.current = true;
+    void performStartupChecks(setAppState);
+  }, [setAppState, isRemoteSession, promptTypingSuppressionActive, hasHadFirstSubmission, startupGraceElapsed]);
   // Ref instead of state to avoid triggering React re-renders on every
   // streaming text_delta. The spinner reads this via its animation timer.
   const responseLengthRef = useRef(0);
