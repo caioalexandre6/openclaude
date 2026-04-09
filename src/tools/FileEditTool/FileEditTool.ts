@@ -276,7 +276,6 @@ export const FileEditTool = buildTool({
     if (!readTimestamp || readTimestamp.isPartialView) {
       return {
         result: false,
-        behavior: 'ask',
         message:
           `File has not been read yet. You must call the Read tool first. ` +
           `Call Read with {"file_path": "${fullFilePath}"} and then retry this Edit.`,
