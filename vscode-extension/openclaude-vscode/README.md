@@ -27,6 +27,8 @@ A practical VS Code companion for OpenClaude with a project-aware **Control Cent
 
 ## Requirements
 
+- **Requirements**: Requires VS Code 1.95+ or 1.96+ and the `openclaude` command available in the terminal PATH.
+
 - VS Code `1.95+`
 - `openclaude` available in your terminal PATH (`npm install -g @gitlawb/openclaude`)
 

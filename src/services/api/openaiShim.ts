@@ -140,35 +140,48 @@ function convertSystemPrompt(
   return String(system)
 }
 
-function convertToolResultContent(content: unknown): string {
+type OpenAIContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+function convertToolResultContent(
+  content: unknown,
+): string | OpenAIContentPart[] {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return JSON.stringify(content ?? '')
 
-  const chunks: string[] = []
+  const parts: OpenAIContentPart[] = []
   for (const block of content) {
     if (block?.type === 'text' && typeof block.text === 'string') {
-      chunks.push(block.text)
+      parts.push({ type: 'text', text: block.text })
       continue
     }
 
     if (block?.type === 'image') {
       const source = block.source
       if (source?.type === 'url' && source.url) {
-        chunks.push(`[Image](${source.url})`)
-      } else if (source?.type === 'base64') {
-        chunks.push(`[image:${source.media_type ?? 'unknown'}]`)
-      } else {
-        chunks.push('[image]')
+        parts.push({ type: 'image_url', image_url: { url: source.url } })
+      } else if (source?.type === 'base64' && source.data && source.media_type) {
+        parts.push({
+          type: 'image_url',
+          image_url: { url: `data:${source.media_type};base64,${source.data}` },
+        })
       }
+      // If image has no usable source, skip it (don't add placeholder text)
       continue
     }
 
     if (typeof block?.text === 'string') {
-      chunks.push(block.text)
+      parts.push({ type: 'text', text: block.text })
     }
   }
 
-  return chunks.join('\n')
+  // If only text parts, collapse to a plain string for maximum model compatibility
+  if (parts.every(p => p.type === 'text')) {
+    return parts.map(p => (p as { type: 'text'; text: string }).text).join('\n')
+  }
+
+  return parts
 }
 
 function convertContentBlocks(
@@ -257,10 +270,23 @@ function convertMessages(
         // Emit tool results as tool messages
         for (const tr of toolResults) {
           const trContent = convertToolResultContent(tr.content)
+          let finalContent: string | OpenAIContentPart[]
+          if (tr.is_error) {
+            // For errors, stringify any array content so we can prepend "Error:"
+            const text = Array.isArray(trContent)
+              ? trContent
+                  .filter(p => p.type === 'text')
+                  .map(p => (p as { type: 'text'; text: string }).text)
+                  .join('\n')
+              : String(trContent)
+            finalContent = `Error: ${text}`
+          } else {
+            finalContent = trContent
+          }
           result.push({
             role: 'tool',
             tool_call_id: tr.tool_use_id ?? 'unknown',
-            content: tr.is_error ? `Error: ${trContent}` : trContent,
+            content: finalContent,
           })
         }
 

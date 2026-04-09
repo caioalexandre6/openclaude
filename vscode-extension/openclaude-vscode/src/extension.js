@@ -12,6 +12,8 @@ const {
   resolveCommandCheckPath,
 } = require('./state');
 const { buildControlCenterViewModel } = require('./presentation');
+const { readAllProjects, formatRelativeTime } = require('./sessions');
+const { ChatPanelProvider } = require('./chat');
 
 const OPENCLAUDE_REPO_URL = 'https://github.com/Gitlawb/openclaude';
 const OPENCLAUDE_SETUP_URL = 'https://github.com/Gitlawb/openclaude/blob/main/README.md#quick-start';
@@ -1037,10 +1039,112 @@ class OpenClaudeControlCenterProvider {
   }
 }
 
+// ─── Session History Tree ──────────────────────────────────────────────────
+
+class SessionItem {
+  constructor(session, projectCwd) {
+    this.session = session;
+    this.projectCwd = projectCwd;
+    this.label = session.displayName;
+    this.description = formatRelativeTime(session.timestamp);
+    this.tooltip = session.preview || session.displayName;
+    this.contextValue = 'session';
+    this.collapsibleState = vscode.TreeItemCollapsibleState.None;
+    this.command = {
+      command: 'openclaude.resumeSession',
+      title: 'Resume',
+      arguments: [session.sessionId, projectCwd],
+    };
+    this.iconPath = new vscode.ThemeIcon('comment-discussion');
+  }
+}
+
+class ProjectItem {
+  constructor(project) {
+    this.project = project;
+    this.label = project.displayName;
+    this.description = project.sessions.length === 1
+      ? '1 session'
+      : `${project.sessions.length} sessions`;
+    this.tooltip = project.projectPath;
+    this.contextValue = 'project';
+    this.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+    this.iconPath = new vscode.ThemeIcon('folder');
+  }
+}
+
+class SessionHistoryProvider {
+  constructor() {
+    this._onDidChangeTreeData = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._onDidChangeTreeData.event;
+    this._projects = null;
+  }
+
+  refresh() {
+    this._projects = null;
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  _loadProjects() {
+    if (this._projects === null) {
+      this._projects = readAllProjects();
+    }
+    return this._projects;
+  }
+
+  getTreeItem(element) {
+    return element;
+  }
+
+  getChildren(element) {
+    if (!element) {
+      // Root: return project nodes
+      const projects = this._loadProjects();
+      if (projects.length === 0) {
+        return [];
+      }
+      return projects.map(p => new ProjectItem(p));
+    }
+
+    if (element instanceof ProjectItem) {
+      return element.project.sessions.map(
+        s => new SessionItem(s, element.project.projectPath),
+      );
+    }
+
+    return [];
+  }
+}
+
+/**
+ * Launch openclaude in a terminal with the given extra flags and cwd.
+ */
+async function launchWithFlags(flags, targetCwd) {
+  const configured = vscode.workspace.getConfiguration('openclaude');
+  const launchCommand = configured.get('launchCommand', 'openclaude');
+  const terminalName = configured.get('terminalName', 'OpenClaude');
+  const shimEnabled = configured.get('useOpenAIShim', false);
+
+  const env = {};
+  if (shimEnabled) {
+    env.CLAUDE_CODE_USE_OPENAI = '1';
+  }
+
+  const terminalOptions = { name: terminalName, env };
+  if (targetCwd) {
+    terminalOptions.cwd = targetCwd;
+  }
+
+  const terminal = vscode.window.createTerminal(terminalOptions);
+  terminal.show(true);
+  terminal.sendText(`${launchCommand} ${flags}`, true);
+}
+
 /**
  * @param {vscode.ExtensionContext} context
  */
 function activate(context) {
+  const chatProvider = new ChatPanelProvider();
   const provider = new OpenClaudeControlCenterProvider();
   const refreshProvider = () => {
     void provider.refresh();
@@ -1079,9 +1183,55 @@ function activate(context) {
     await vscode.commands.executeCommand('workbench.view.extension.openclaude');
   });
 
+  const openChatCommand = vscode.commands.registerCommand('openclaude.openChat', async () => {
+    const launchWorkspace = resolveLaunchWorkspace();
+    await chatProvider.open(launchWorkspace.workspacePath || undefined);
+  });
+
   const providerDisposable = vscode.window.registerWebviewViewProvider(
     'openclaude.controlCenter',
     provider,
+  );
+
+  // ─── Session History ───────────────────────────────────────────────────────
+
+  const sessionHistoryProvider = new SessionHistoryProvider();
+
+  const sessionTreeView = vscode.window.createTreeView('openclaude.sessions', {
+    treeDataProvider: sessionHistoryProvider,
+    showCollapseAll: true,
+  });
+
+  const continueLastCommand = vscode.commands.registerCommand(
+    'openclaude.continueLast',
+    async () => {
+      const launchWorkspace = resolveLaunchWorkspace();
+      const cwd = launchWorkspace.workspacePath || undefined;
+      await launchWithFlags('-c', cwd);
+    },
+  );
+
+  const resumeSessionCommand = vscode.commands.registerCommand(
+    'openclaude.resumeSession',
+    async (sessionId, projectCwd) => {
+      // Called from tree item click (args provided) or command palette (prompt user)
+      if (!sessionId) {
+        sessionId = await vscode.window.showInputBox({
+          prompt: 'Enter the session ID to resume',
+          placeHolder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+        });
+        if (!sessionId) return;
+      }
+
+      await launchWithFlags(`-r ${sessionId}`, projectCwd || undefined);
+    },
+  );
+
+  const refreshSessionsCommand = vscode.commands.registerCommand(
+    'openclaude.refreshSessions',
+    () => {
+      sessionHistoryProvider.refresh();
+    },
   );
 
   const profileWatcher = vscode.workspace.createFileSystemWatcher(`**/${PROFILE_FILE_NAME}`);
@@ -1093,7 +1243,13 @@ function activate(context) {
     openSetupDocsCommand,
     openWorkspaceProfileCommand,
     openUiCommand,
+    openChatCommand,
     providerDisposable,
+    sessionTreeView,
+    continueLastCommand,
+    resumeSessionCommand,
+    refreshSessionsCommand,
+    { dispose: () => chatProvider.dispose() },
     profileWatcher,
     vscode.workspace.onDidChangeConfiguration(event => {
       if (event.affectsConfiguration('openclaude')) {
@@ -1114,6 +1270,7 @@ module.exports = {
   activate,
   deactivate,
   OpenClaudeControlCenterProvider,
+  SessionHistoryProvider,
   renderControlCenterHtml,
   resolveLaunchTargets,
 };

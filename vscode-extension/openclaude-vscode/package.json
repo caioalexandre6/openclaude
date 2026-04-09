@@ -5,6 +5,7 @@
   "version": "0.1.1",
   "publisher": "devnull-bootloader",
   "engines": {
+    "vscode": "^1.95.0 || ^1.96.0",
     "vscode": "^1.95.0"
   },
   "categories": [
@@ -12,14 +13,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:openclaude.start",
-    "onCommand:openclaude.startInWorkspaceRoot",
-    "onCommand:openclaude.openDocs",
-    "onCommand:openclaude.openSetupDocs",
-    "onCommand:openclaude.openWorkspaceProfile",
-    "onCommand:openclaude.openControlCenter",
-    "onView:openclaude.controlCenter"
+    "onStartupFinished"
   ],
   "main": "./src/extension.js",
   "files": [
@@ -28,6 +22,8 @@
     "src/extension.js",
     "src/presentation.js",
     "src/state.js",
+    "src/sessions.js",
+    "src/chat.js",
     "themes/**"
   ],
   "contributes": {
@@ -61,6 +57,30 @@
         "command": "openclaude.openControlCenter",
         "title": "OpenClaude: Open Control Center",
         "category": "OpenClaude"
+      },
+      {
+        "command": "openclaude.continueLast",
+        "title": "OpenClaude: Continue Last Session",
+        "category": "OpenClaude",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "openclaude.resumeSession",
+        "title": "OpenClaude: Resume Session",
+        "category": "OpenClaude",
+        "icon": "$(history)"
+      },
+      {
+        "command": "openclaude.refreshSessions",
+        "title": "OpenClaude: Refresh Session History",
+        "category": "OpenClaude",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "openclaude.openChat",
+        "title": "OpenClaude: Open Chat",
+        "category": "OpenClaude",
+        "icon": "$(comment-discussion)"
       }
     ],
     "viewsContainers": {
@@ -78,6 +98,44 @@
           "id": "openclaude.controlCenter",
           "name": "Control Center",
           "type": "webview"
+        },
+        {
+          "id": "openclaude.sessions",
+          "name": "Session History",
+          "type": "tree"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "openclaude.openChat",
+        "key": "ctrl+shift+o",
+        "mac": "cmd+shift+o"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "openclaude.openChat",
+          "when": "view == openclaude.sessions || view == openclaude.controlCenter",
+          "group": "navigation@0"
+        },
+        {
+          "command": "openclaude.continueLast",
+          "when": "view == openclaude.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "openclaude.refreshSessions",
+          "when": "view == openclaude.sessions",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "openclaude.resumeSession",
+          "when": "view == openclaude.sessions && viewItem == session",
+          "group": "inline"
         }
       ]
     },
