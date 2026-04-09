@@ -48,7 +48,14 @@ export function normalizeToolArguments(
   try {
     const parsed = JSON.parse(rawArguments)
     if (isRecord(parsed)) {
-      return parsed
+      // OpenAI strict mode sends null for optional fields (schema forces all
+      // fields into required[], so the model passes null instead of omitting).
+      // Strip null values so Zod .optional() receives undefined, not null.
+      const cleaned: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(parsed)) {
+        if (v !== null) cleaned[k] = v
+      }
+      return cleaned
     }
     // Parsed as a non-object JSON value (string, number, boolean, null, array)
     if (typeof parsed === 'string' && !isBlankString(parsed)) {
