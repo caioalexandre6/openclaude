@@ -12,6 +12,7 @@ import {
   addLineNumbers,
   convertLeadingTabsToSpaces,
   readFileSyncCached,
+  stripLineNumberPrefix,
 } from '../../utils/file.js'
 import type { EditInput, FileEdit } from './types.js'
 
@@ -70,6 +71,20 @@ export function stripTrailingWhitespace(str: string): string {
  * @param searchString The string to search for
  * @returns The actual string found in the file, or null if not found
  */
+/**
+ * Strips line-number prefixes that the Read tool adds to file content.
+ * GPT models sometimes copy these prefixes verbatim into old_string.
+ * Both formats are handled:
+ *   compact:     "1\tline content"
+ *   padded-arrow: "     1→line content"
+ */
+function stripLineNumberPrefixes(str: string): string {
+  return str
+    .split('\n')
+    .map(line => stripLineNumberPrefix(line))
+    .join('\n')
+}
+
 export function findActualString(
   fileContent: string,
   searchString: string,
@@ -87,6 +102,22 @@ export function findActualString(
   if (searchIndex !== -1) {
     // Find the actual string in the file that matches
     return fileContent.substring(searchIndex, searchIndex + searchString.length)
+  }
+
+  // Try stripping line-number prefixes that the Read tool adds.
+  // OpenAI/GPT models frequently include "1\t" or "  1→" prefixes in old_string
+  // because they copy directly from the Read output without stripping them.
+  const strippedSearch = stripLineNumberPrefixes(searchString)
+  if (strippedSearch !== searchString) {
+    if (fileContent.includes(strippedSearch)) {
+      return strippedSearch
+    }
+    // Also try with quote normalization on the stripped version
+    const normalizedStripped = normalizeQuotes(strippedSearch)
+    const strippedIndex = normalizedFile.indexOf(normalizedStripped)
+    if (strippedIndex !== -1) {
+      return fileContent.substring(strippedIndex, strippedIndex + strippedSearch.length)
+    }
   }
 
   return null
