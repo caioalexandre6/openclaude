@@ -278,7 +278,8 @@ export const FileEditTool = buildTool({
         result: false,
         behavior: 'ask',
         message:
-          'File has not been read yet. Read it first before writing to it.',
+          `File has not been read yet. You must call the Read tool first. ` +
+          `Call Read with {"file_path": "${fullFilePath}"} and then retry this Edit.`,
         meta: {
           isFilePathAbsolute: String(isAbsolute(file_path)),
         },

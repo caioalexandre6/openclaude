@@ -638,7 +638,31 @@ async function checkPermissionsAndCallTool(
   ) => void,
 ): Promise<MessageUpdateLazy[]> {
   // Validate input types with zod (surprisingly, the model is not great at generating valid input)
-  const parsedInput = tool.inputSchema.safeParse(input)
+  let parsedInput = tool.inputSchema.safeParse(input)
+
+  // OpenAI-compatible providers (Azure, GPT, Ollama) sometimes send extra fields
+  // that strict schemas reject even though additionalProperties: false is set.
+  // When the only failures are unrecognized_keys, strip those keys and retry
+  // rather than returning an error — the tool call is otherwise valid.
+  if (!parsedInput.success && typeof input === 'object' && input !== null && !Array.isArray(input)) {
+    const hasOnlyUnknownKeyIssues = parsedInput.error.issues.every(
+      issue => issue.code === 'unrecognized_keys',
+    )
+    if (hasOnlyUnknownKeyIssues) {
+      const unknownKeys = new Set<string>(
+        parsedInput.error.issues.flatMap(issue =>
+          issue.code === 'unrecognized_keys' ? (issue.keys as string[]) : [],
+        ),
+      )
+      const stripped: Record<string, unknown> = {}
+      for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+        if (!unknownKeys.has(k)) stripped[k] = v
+      }
+      const retried = tool.inputSchema.safeParse(stripped)
+      if (retried.success) parsedInput = retried
+    }
+  }
+
   if (!parsedInput.success) {
     const fallbackErrorContent = formatZodValidationError(tool.name, parsedInput.error)
     let errorContent =
